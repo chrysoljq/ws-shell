@@ -35,11 +35,26 @@ rust-ws-shell/
 | 并发数据结构 | dashmap |
 | CLI 解析 | clap 4 |
 | 日志 | tracing + tracing-subscriber |
-| 构建目标 | x86_64-unknown-linux-musl（静态链接） |
 
 ## 快速开始
 
-### 构建
+### 直接下载（推荐）
+
+从 [Releases](https://github.com/chrysoljq/ws-shell/releases/tag/v0.1.0) 页面下载预编译的静态二进制，无需安装 Rust 环境：
+
+```bash
+# 下载服务端
+curl -LO https://github.com/chrysoljq/ws-shell/releases/download/v0.1.0/server-linux-amd64.gz
+gunzip server-linux-amd64.gz
+chmod +x server-linux-amd64
+
+# 下载客户端 Agent
+curl -LO https://github.com/chrysoljq/ws-shell/releases/download/v0.1.0/client-linux-amd64.gz
+gunzip client-linux-amd64.gz
+chmod +x client-linux-amd64
+```
+
+### 从源码构建
 
 ```bash
 # 构建服务端
@@ -54,7 +69,15 @@ Release 构建默认开启 `strip`、`LTO`、`opt-level = "z"`，生成体积最
 ### 启动服务端
 
 ```bash
-./target/x86_64-unknown-linux-musl/release/ws-shell-server \
+# 直接下载的二进制
+./server-linux-amd64 \
+  --port 9888 \
+  --jwt-secret your-secret-key \
+  --admin-user admin \
+  --admin-password your-password
+
+# 或从源码构建的二进制
+./target/x86_64-unknown-linux-musl/release/server \
   --port 9888 \
   --jwt-secret your-secret-key \
   --admin-user admin \
@@ -71,7 +94,14 @@ Release 构建默认开启 `strip`、`LTO`、`opt-level = "z"`，生成体积最
 ### 启动客户端 Agent
 
 ```bash
-./target/x86_64-unknown-linux-musl/release/ws-shell-client \
+# 直接下载的二进制
+./client-linux-amd64 \
+  --server ws://YOUR_SERVER:9888 \
+  --token YOUR_JWT_TOKEN \
+  --heartbeat 30
+
+# 或从源码构建的二进制
+./target/x86_64-unknown-linux-musl/release/node-metrics-agent \
   --server ws://YOUR_SERVER:9888 \
   --token YOUR_JWT_TOKEN \
   --heartbeat 30
