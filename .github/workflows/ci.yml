@@ -22,7 +22,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: x86_64-unknown-linux-musl
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -39,6 +38,9 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+        env:
+          # clippy 在 host 目标运行，无需 musl 工具链
+          CARGO_BUILD_TARGET: ""
 
   # ── 编译验证（musl 静态链接）────────────────────────────────────────────────
   build:
@@ -54,7 +56,13 @@ jobs:
           targets: x86_64-unknown-linux-musl
 
       - name: Install musl-tools
-        run: sudo apt-get install -y musl-tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools
+          # ring/cc-rs 查找 x86_64-linux-musl-gcc，musl-tools 只提供 musl-gcc
+          # 通过 CC 环境变量显式指定，无需创建 symlink
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -68,9 +76,15 @@ jobs:
 
       - name: Build server
         run: cargo build --release -p ws-shell-server
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
 
       - name: Build agent
         run: cargo build --release -p node-metrics-agent
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
 
       - name: Upload artifacts (server)
         uses: actions/upload-artifact@v4
