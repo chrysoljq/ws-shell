@@ -1,0 +1,20 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 环境变量 / 密钥
+.env
+*.pem
+*.key
+test.rs
