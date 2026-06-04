@@ -11,7 +11,7 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # ── 代码格式 & Lint ─────────────────────────────────────────────────────────
+  # ── 代码格式 & Lint（仅在 host 目标运行，无需跨编译工具链）───────────────────
   lint:
     name: Lint (fmt + clippy)
     runs-on: ubuntu-latest
@@ -23,7 +23,7 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache cargo registry
+      - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
@@ -38,61 +38,97 @@ jobs:
 
       - name: cargo clippy
         # 显式指定 host target，覆盖 .cargo/config.toml 中的 musl 默认值
-        # lint job 无需 musl 工具链
         run: cargo clippy --target x86_64-unknown-linux-gnu --all-targets --all-features -- -D warnings
 
-  # ── 编译验证（musl 静态链接）────────────────────────────────────────────────
+  # ── 多平台编译验证 ────────────────────────────────────────────────────────────
   build:
-    name: Build (x86_64-unknown-linux-musl)
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux 静态链接（musl），通过 cargo-zigbuild 交叉编译
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_zigbuild: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use_zigbuild: true
+          # macOS 原生编译
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_zigbuild: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_zigbuild: false
+          # Windows 原生编译
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_zigbuild: false
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: ${{ matrix.target }}
 
-      - name: Install musl-tools
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y musl-tools
-          # ring/cc-rs 查找 x86_64-linux-musl-gcc，musl-tools 只提供 musl-gcc
-          # 通过 CC 环境变量显式指定，无需创建 symlink
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      # ── Linux musl：安装 zig + cargo-zigbuild ────────────────────────────────
+      - name: Setup zig (musl targets)
+        if: matrix.use_zigbuild
+        uses: mlugg/setup-zig@v2
 
-      - name: Cache cargo registry
+      - name: Install cargo-zigbuild (musl targets)
+        if: matrix.use_zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-build-
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-build-
 
-      - name: Build server
-        run: cargo build --release -p ws-shell-server
-        env:
-          CC_x86_64_unknown_linux_musl: musl-gcc
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+      # ── musl：用 zigbuild ────────────────────────────────────────────────────
+      - name: Build server (zigbuild)
+        if: matrix.use_zigbuild
+        run: cargo zigbuild --release -p ws-shell-server --target ${{ matrix.target }}
 
-      - name: Build agent
-        run: cargo build --release -p node-metrics-agent
-        env:
-          CC_x86_64_unknown_linux_musl: musl-gcc
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+      - name: Build agent (zigbuild)
+        if: matrix.use_zigbuild
+        run: cargo zigbuild --release -p node-metrics-agent --target ${{ matrix.target }}
+
+      # ── 原生平台：直接 cargo build ───────────────────────────────────────────
+      - name: Build server (native)
+        if: "!matrix.use_zigbuild"
+        run: cargo build --release -p ws-shell-server --target ${{ matrix.target }}
+
+      - name: Build agent (native)
+        if: "!matrix.use_zigbuild"
+        run: cargo build --release -p node-metrics-agent --target ${{ matrix.target }}
 
       - name: Upload artifacts (server)
         uses: actions/upload-artifact@v4
         with:
-          name: server-${{ github.sha }}
-          path: target/x86_64-unknown-linux-musl/release/server
+          name: server-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            target/${{ matrix.target }}/release/server
+            target/${{ matrix.target }}/release/ws-shell-server
+            target/${{ matrix.target }}/release/server.exe
+            target/${{ matrix.target }}/release/ws-shell-server.exe
 
       - name: Upload artifacts (agent)
         uses: actions/upload-artifact@v4
         with:
-          name: node-metrics-agent-${{ github.sha }}
-          path: target/x86_64-unknown-linux-musl/release/node-metrics-agent
+          name: node-metrics-agent-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            target/${{ matrix.target }}/release/node-metrics-agent
+            target/${{ matrix.target }}/release/node-metrics-agent.exe
