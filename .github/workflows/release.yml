@@ -126,7 +126,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd dist
-          sha256sum * > checksums-${{ matrix.target }}.txt
+          sha256sum ws-shell-* > checksums-${{ matrix.target }}.txt
           cat checksums-${{ matrix.target }}.txt
 
       - name: Generate checksums (windows)
@@ -134,7 +134,7 @@ jobs:
         shell: pwsh
         run: |
           cd dist
-          Get-FileHash * -Algorithm SHA256 | ForEach-Object {
+          Get-FileHash ws-shell-*.exe -Algorithm SHA256 | ForEach-Object {
             "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)"
           } | Out-File -FilePath "checksums-${{ matrix.target }}.txt" -Encoding utf8
           Get-Content "checksums-${{ matrix.target }}.txt"
