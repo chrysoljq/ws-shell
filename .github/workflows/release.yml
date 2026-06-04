@@ -77,14 +77,14 @@ jobs:
         if: matrix.use_zigbuild
         run: |
           cargo zigbuild --release -p ws-shell-server   --target ${{ matrix.target }}
-          cargo zigbuild --release -p node-metrics-agent --target ${{ matrix.target }}
+          cargo zigbuild --release -p ws-shell-client --target ${{ matrix.target }}
 
       # ── 原生平台：直接 cargo build ───────────────────────────────────────────
       - name: Build (native)
         if: "!matrix.use_zigbuild"
         run: |
           cargo build --release -p ws-shell-server    --target ${{ matrix.target }}
-          cargo build --release -p node-metrics-agent --target ${{ matrix.target }}
+          cargo build --release -p ws-shell-client --target ${{ matrix.target }}
 
       # ── 整理产物，统一命名：<binary>-<version>-<target>[.exe] ─────────────────
       - name: Prepare artifacts (unix)
@@ -100,8 +100,8 @@ jobs:
               break
             fi
           done
-          cp "target/${{ matrix.target }}/release/node-metrics-agent" \
-             "dist/node-metrics-agent-${TAG}-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/ws-shell-client" \
+             "dist/ws-shell-client-${TAG}-${{ matrix.target }}"
           ls -lh dist/
 
       - name: Prepare artifacts (windows)
@@ -117,8 +117,8 @@ jobs:
               break
             }
           }
-          Copy-Item "target\${{ matrix.target }}\release\node-metrics-agent.exe" `
-                    "dist\node-metrics-agent-${TAG}-${{ matrix.target }}.exe"
+          Copy-Item "target\${{ matrix.target }}\release\ws-shell-client.exe" `
+                    "dist\ws-shell-client-${TAG}-${{ matrix.target }}.exe"
           Get-ChildItem dist
 
       # ── SHA256 校验（unix）───────────────────────────────────────────────────

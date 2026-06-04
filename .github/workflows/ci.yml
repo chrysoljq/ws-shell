@@ -104,7 +104,7 @@ jobs:
 
       - name: Build agent (zigbuild)
         if: matrix.use_zigbuild
-        run: cargo zigbuild --release -p node-metrics-agent --target ${{ matrix.target }}
+        run: cargo zigbuild --release -p ws-shell-client --target ${{ matrix.target }}
 
       # ── 原生平台：直接 cargo build ───────────────────────────────────────────
       - name: Build server (native)
@@ -113,22 +113,20 @@ jobs:
 
       - name: Build agent (native)
         if: "!matrix.use_zigbuild"
-        run: cargo build --release -p node-metrics-agent --target ${{ matrix.target }}
+        run: cargo build --release -p ws-shell-client --target ${{ matrix.target }}
 
       - name: Upload artifacts (server)
         uses: actions/upload-artifact@v4
         with:
-          name: server-${{ matrix.target }}-${{ github.sha }}
+          name: ws-shell-server-${{ matrix.target }}-${{ github.sha }}
           path: |
-            target/${{ matrix.target }}/release/server
             target/${{ matrix.target }}/release/ws-shell-server
-            target/${{ matrix.target }}/release/server.exe
             target/${{ matrix.target }}/release/ws-shell-server.exe
 
       - name: Upload artifacts (agent)
         uses: actions/upload-artifact@v4
         with:
-          name: node-metrics-agent-${{ matrix.target }}-${{ github.sha }}
+          name: ws-shell-client-${{ matrix.target }}-${{ github.sha }}
           path: |
-            target/${{ matrix.target }}/release/node-metrics-agent
-            target/${{ matrix.target }}/release/node-metrics-agent.exe
+            target/${{ matrix.target }}/release/ws-shell-client
+            target/${{ matrix.target }}/release/ws-shell-client.exe

@@ -858,23 +858,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "node-metrics-agent"
-version = "1.5.0"
-dependencies = [
- "clap",
- "futures-util",
- "gethostname",
- "libc",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.26.2",
- "tracing",
- "tracing-subscriber",
- "users",
- "ws-shell-common",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2060,6 +2043,23 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "ws-shell-client"
+version = "1.5.0"
+dependencies = [
+ "clap",
+ "futures-util",
+ "gethostname",
+ "libc",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tracing",
+ "tracing-subscriber",
+ "users",
+ "ws-shell-common",
 ]
 
 [[package]]

@@ -46,7 +46,7 @@ rust-ws-shell/
 cargo build --release -p ws-shell-server
 
 # 构建客户端 Agent
-cargo build --release -p node-metrics-agent
+cargo build --release -p ws-shell-client
 ```
 
 Release 构建默认开启 `strip`、`LTO`、`opt-level = "z"`，生成体积最小的静态二进制。
@@ -54,7 +54,7 @@ Release 构建默认开启 `strip`、`LTO`、`opt-level = "z"`，生成体积最
 ### 启动服务端
 
 ```bash
-./target/x86_64-unknown-linux-musl/release/server \
+./target/x86_64-unknown-linux-musl/release/ws-shell-server \
   --port 9888 \
   --jwt-secret your-secret-key \
   --admin-user admin \
@@ -71,7 +71,7 @@ Release 构建默认开启 `strip`、`LTO`、`opt-level = "z"`，生成体积最
 ### 启动客户端 Agent
 
 ```bash
-./target/x86_64-unknown-linux-musl/release/node-metrics-agent \
+./target/x86_64-unknown-linux-musl/release/ws-shell-client \
   --server ws://YOUR_SERVER:9888 \
   --token YOUR_JWT_TOKEN \
   --heartbeat 30
