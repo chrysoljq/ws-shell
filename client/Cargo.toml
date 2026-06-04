@@ -17,5 +17,3 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 gethostname = "0.5"
-libc = "0.2"
-users = "0.11"
