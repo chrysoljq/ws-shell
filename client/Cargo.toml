@@ -11,6 +11,7 @@ path = "src/main.rs"
 ws-shell-common = { path = "../common" }
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", features = ["ring"] }
 futures-util = "0.3"
 serde_json = "1"
 tracing = "0.1"
