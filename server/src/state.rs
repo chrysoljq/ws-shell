@@ -110,4 +110,3 @@ impl AppState {
         self.webui_listeners.remove(id);
     }
 }
-

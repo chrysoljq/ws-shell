@@ -42,10 +42,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // ── WebSocket ───────────────────────────────────────
         .route("/ws", get(ws_handler))
         .route("/ws/client", get(ws_client_handler))
-        .nest_service(
-            "/static",
-            tower_http::services::ServeDir::new(static_dir),
-        )
+        .nest_service("/static", tower_http::services::ServeDir::new(static_dir))
         .with_state(state)
 }
 
@@ -74,7 +71,9 @@ async fn download_client() -> Response {
             bytes,
         )
             .into_response(),
-        Err(e) => ApiErrorResponse::internal(format!("failed to read agent: {}", e)).into_response(),
+        Err(e) => {
+            ApiErrorResponse::internal(format!("failed to read agent: {}", e)).into_response()
+        }
     }
 }
 
@@ -259,7 +258,9 @@ async fn handle_webui_ws(socket: WebSocket, state: Arc<AppState>, token: String)
                             continue;
                         }
                     }
-                    let _ = tx.send(r#"{"error":"unauthorized","message":"invalid credentials"}"#.to_string());
+                    let _ = tx.send(
+                        r#"{"error":"unauthorized","message":"invalid credentials"}"#.to_string(),
+                    );
                     break;
                 }
             }
@@ -310,10 +311,7 @@ async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String
         if let Message::Text(text) = msg {
             let text: &str = &text;
             if let Ok(ClientMsg::Register {
-                hostname,
-                os,
-                arch,
-                ..
+                hostname, os, arch, ..
             }) = serde_json::from_str(text)
             {
                 let id = uuid::Uuid::new_v4().to_string();

@@ -223,7 +223,11 @@ async fn run_task(
 
     // 等待退出码 — 从 task map 取出 child
     let exit_code = if let Some(mut child) = tasks.write().await.remove(&id) {
-        child.wait().await.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1)
+        child
+            .wait()
+            .await
+            .map(|s| s.code().unwrap_or(-1))
+            .unwrap_or(-1)
     } else {
         // 已被 Kill 移除
         -1

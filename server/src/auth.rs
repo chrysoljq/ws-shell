@@ -126,9 +126,7 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
             for pair in query.split('&') {
                 let mut kv = pair.splitn(2, '=');
                 if let (Some(key), Some(val)) = (kv.next(), kv.next()) {
-                    if (key == "token" || key == "t")
-                        && !val.is_empty()
-                    {
+                    if (key == "token" || key == "t") && !val.is_empty() {
                         if let Some(claims) = verify_token(&state.jwt_secret, val) {
                             return Ok(AuthUser(claims));
                         }
