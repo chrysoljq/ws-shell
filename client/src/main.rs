@@ -132,8 +132,20 @@ async fn connect_and_run(args: &Args) -> Result<(), Box<dyn std::error::Error>> 
                         info!("[task:{}] kill requested", id);
                         let mut map = tasks.write().await;
                         if let Some(mut child) = map.remove(&id) {
+                            if let Some(pid) = child.id() {
+                                #[cfg(unix)]
+                                unsafe {
+                                    libc::kill(-(pid as i32), libc::SIGKILL);
+                                }
+                                #[cfg(windows)]
+                                {
+                                    let _ = std::process::Command::new("taskkill")
+                                        .args(["/F", "/T", "/PID", &pid.to_string()])
+                                        .output();
+                                }
+                            }
                             if let Err(e) = child.kill().await {
-                                warn!("[task:{}] kill failed: {}", id, e);
+                                warn!("[task:{}] child.kill() failed: {}", id, e);
                             } else {
                                 info!("[task:{}] killed", id);
                             }
@@ -164,15 +176,21 @@ async fn run_task(
     env: Option<std::collections::HashMap<String, String>>,
 ) {
     let id = id.to_string();
-    let mut command = if cfg!(target_os = "windows") {
-        let mut c = Command::new("cmd");
+    let command = if cfg!(target_os = "windows") {
+        let mut c = std::process::Command::new("cmd");
         c.args(["/C", cmd]);
         c
     } else {
-        let mut c = Command::new("sh");
+        let mut c = std::process::Command::new("sh");
         c.args(["-c", cmd]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            c.process_group(0);
+        }
         c
     };
+    let mut command = Command::from(command);
 
     if let Some(dir) = cwd {
         command.current_dir(dir);
