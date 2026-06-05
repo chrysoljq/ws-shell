@@ -46,6 +46,7 @@ async fn main() {
         clients: DashMap::new(),
         webui_listeners: DashMap::new(),
         log_buffer: Mutex::new(VecDeque::new()),
+        tasks: DashMap::new(),
         jwt_secret: args.secret.clone(),
         admin_username: args.username.clone(),
         admin_password_hash: password_hash,
@@ -59,5 +60,5 @@ async fn main() {
     info!("WS endpoint: ws://localhost:{}/ws/client", args.port);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }

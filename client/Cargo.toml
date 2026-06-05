@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 ws-shell-common = { path = "../common" }
-tokio = { version = "1", features = ["full", "macros", "process", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", features = ["ring"] }
 futures-util = "0.3"

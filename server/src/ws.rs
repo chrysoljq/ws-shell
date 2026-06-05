@@ -1,7 +1,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        ConnectInfo, Query, State,
+        Query, State,
     },
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -9,7 +9,6 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -40,6 +39,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/clients/{client_id}/kill/{task_id}",
             post(kill_task),
         )
+        .route("/api/v1/tasks/{task_id}", get(get_task))
         // ── WebSocket ───────────────────────────────────────
         .route("/ws", get(ws_handler))
         .route("/ws/client", get(ws_client_handler))
@@ -182,6 +182,7 @@ async fn exec_command(
     state
         .send_to_client(&client_id, &msg)
         .map_err(ApiErrorResponse::not_found)?;
+    state.task_create(&id);
     Ok(Json(ExecResponse { id }))
 }
 
@@ -203,6 +204,17 @@ async fn kill_task(
     Ok(Json(MessageResponse {
         message: format!("kill signal sent for task {}", task_id),
     }))
+}
+
+async fn get_task(
+    _auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> Result<Json<ws_shell_common::TaskResult>, ApiErrorResponse> {
+    state
+        .task_get(&task_id)
+        .map(Json)
+        .ok_or_else(|| ApiErrorResponse::not_found(format!("task {} not found or expired", task_id)))
 }
 
 // ── WebSocket: WebUI ↔ Server ────────────────────────────────────
@@ -279,21 +291,20 @@ async fn handle_webui_ws(socket: WebSocket, state: Arc<AppState>, token: String)
 async fn ws_client_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let token = params.get("token").cloned().unwrap_or_default();
-    ws.on_upgrade(move |socket| handle_client_ws(socket, state, token, addr))
+    ws.on_upgrade(move |socket| handle_client_ws(socket, state, token))
 }
 
-async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String, addr: SocketAddr) {
+async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String) {
     // Accept both JWT tokens and raw secret for client connections
     if auth::verify_token(&state.jwt_secret, &token).is_none() && token != state.jwt_secret {
         warn!("Client connection rejected: invalid token");
         return;
     }
 
-    let addr = addr.to_string();
+    let addr = "unknown".to_string();
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -346,16 +357,23 @@ async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String
                         };
 
                         match &client_msg {
-                            ClientMsg::Output { id, .. } => {
+                            ClientMsg::Output { id, stream, data, .. } => {
                                 info!("[{}] output: {} bytes", id, text.len());
+                                let stream_str = match stream {
+                                    ws_shell_common::StreamType::Stderr => "stderr",
+                                    _ => "stdout",
+                                };
+                                state.task_append_output(id, stream_str, data);
                                 state.broadcast_to_webui(&enriched_text);
                             }
                             ClientMsg::Exit { id, code } => {
                                 info!("[{}] exit code: {}", id, code);
+                                state.task_complete(id, *code);
                                 state.broadcast_to_webui(&enriched_text);
                             }
                             ClientMsg::Error { id, msg } => {
                                 warn!("[{}] error: {}", id, msg);
+                                state.task_error(id, msg);
                                 state.broadcast_to_webui(&enriched_text);
                             }
                             ClientMsg::Heartbeat { .. } => {

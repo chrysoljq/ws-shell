@@ -3,9 +3,10 @@ use dashmap::DashMap;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use tokio::sync::mpsc;
-use ws_shell_common::{ClientInfo, ServerMsg};
+use ws_shell_common::{ClientInfo, ServerMsg, TaskResult, TaskStatus};
 
 const LOG_BUFFER_SIZE: usize = 200;
+const TASK_TTL_SECS: i64 = 300; // 5 minutes
 
 /// One connected client
 pub struct ConnectedClient {
@@ -19,6 +20,8 @@ pub struct AppState {
     pub webui_listeners: DashMap<String, mpsc::UnboundedSender<String>>,
     /// Recent log buffer for replaying to new WebUI connections
     pub log_buffer: Mutex<VecDeque<String>>,
+    /// Cached exec results for REST polling
+    pub tasks: DashMap<String, TaskResult>,
     pub jwt_secret: String,
     pub admin_username: String,
     pub admin_password_hash: String,
@@ -108,5 +111,64 @@ impl AppState {
 
     pub fn remove_webui_listener(&self, id: &str) {
         self.webui_listeners.remove(id);
+    }
+
+    // ── Task result cache ────────────────────────────────────────────
+
+    pub fn task_create(&self, id: &str) {
+        let result = TaskResult {
+            id: id.to_string(),
+            status: TaskStatus::Running,
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: None,
+            error: None,
+            created_at: Utc::now().to_rfc3339(),
+            completed_at: None,
+        };
+        self.tasks.insert(id.to_string(), result);
+    }
+
+    pub fn task_append_output(&self, id: &str, stream: &str, data: &str) {
+        if let Some(mut task) = self.tasks.get_mut(id) {
+            if stream == "stderr" {
+                task.stderr.push_str(data);
+            } else {
+                task.stdout.push_str(data);
+            }
+        }
+    }
+
+    pub fn task_complete(&self, id: &str, code: i32) {
+        if let Some(mut task) = self.tasks.get_mut(id) {
+            task.status = TaskStatus::Completed;
+            task.exit_code = Some(code);
+            task.completed_at = Some(Utc::now().to_rfc3339());
+        }
+    }
+
+    pub fn task_error(&self, id: &str, msg: &str) {
+        if let Some(mut task) = self.tasks.get_mut(id) {
+            task.status = TaskStatus::Error;
+            task.error = Some(msg.to_string());
+            task.completed_at = Some(Utc::now().to_rfc3339());
+        }
+    }
+
+    pub fn task_get(&self, id: &str) -> Option<TaskResult> {
+        let task = {
+            let entry = self.tasks.get(id);
+            entry.map(|t| t.value().clone())
+        };
+        if let Some(ref t) = task {
+            // Lazy TTL cleanup
+            if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&t.created_at) {
+                if Utc::now().signed_duration_since(created).num_seconds() > TASK_TTL_SECS {
+                    self.tasks.remove(id);
+                    return None;
+                }
+            }
+        }
+        task
     }
 }

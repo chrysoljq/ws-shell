@@ -107,3 +107,24 @@ pub struct ApiError {
 pub struct MessageResponse {
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskStatus {
+    Running,
+    Completed,
+    Error,
+}
+
+/// Cached exec result for REST polling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskResult {
+    pub id: String,
+    pub status: TaskStatus,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub error: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
