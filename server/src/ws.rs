@@ -1,7 +1,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Query, State,
+        ConnectInfo, Query, State,
     },
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -9,6 +9,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -278,20 +279,21 @@ async fn handle_webui_ws(socket: WebSocket, state: Arc<AppState>, token: String)
 async fn ws_client_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let token = params.get("token").cloned().unwrap_or_default();
-    ws.on_upgrade(move |socket| handle_client_ws(socket, state, token))
+    ws.on_upgrade(move |socket| handle_client_ws(socket, state, token, addr))
 }
 
-async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String) {
+async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String, addr: SocketAddr) {
     // Accept both JWT tokens and raw secret for client connections
     if auth::verify_token(&state.jwt_secret, &token).is_none() && token != state.jwt_secret {
         warn!("Client connection rejected: invalid token");
         return;
     }
 
-    let addr = "unknown".to_string();
+    let addr = addr.to_string();
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
