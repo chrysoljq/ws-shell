@@ -60,5 +60,5 @@ async fn main() {
     info!("WS endpoint: ws://localhost:{}/ws/client", args.port);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
