@@ -558,6 +558,8 @@ body::before {
   font-size: 13px;
   color: var(--success);
   white-space: nowrap;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 .console-input-wrapper {
@@ -675,8 +677,16 @@ body::before {
   }
 
   .btn-cyber {
-    padding: 6px 8px;
-    font-size: 11px;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .btn-cyber svg {
+    margin: 0 !important;
   }
 
   .btn-cyber .btn-text {
@@ -710,7 +720,14 @@ body::before {
   }
   
   .prompt-prefix {
-    max-width: 80px;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .console-header-details {
+    max-width: 60%;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -754,12 +771,23 @@ body::before {
 
 @media (max-width: 680px) {
   .quick-commands-bar {
-    padding: 6px 12px;
-    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 12px;
+    gap: 8px;
+    scrollbar-width: none;
+  }
+  .quick-commands-bar::-webkit-scrollbar {
+    display: none;
   }
   .btn-quick-cmd {
     font-size: 10px;
-    padding: 2px 6px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+  }
+  .quick-cmd-label {
+    flex-shrink: 0;
   }
 }
 
@@ -802,7 +830,12 @@ body::before {
 @media (max-width: 680px) {
   .console-scroll-controls {
     right: 12px;
-    bottom: 95px;
+    bottom: 75px;
+  }
+  .btn-scroll-control {
+    width: 24px;
+    height: 24px;
+    opacity: 0.8;
   }
 }
 </style>
