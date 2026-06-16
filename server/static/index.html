@@ -470,14 +470,9 @@ body::before {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
+  margin: 0;
   white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.output-line .time {
-  color: var(--text-muted);
-  margin-right: 8px;
-  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .output-line.stdout { color: var(--text-primary); }
@@ -545,7 +540,7 @@ body::before {
 /* Console Input */
 .console-input-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
   padding: 12px 16px;
@@ -566,10 +561,10 @@ body::before {
   flex: 1;
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: stretch;
 }
 
-.console-input-bar input {
+.console-input-bar textarea {
   width: 100%;
   background: transparent;
   border: none;
@@ -577,7 +572,12 @@ body::before {
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 13px;
-  height: 28px;
+  line-height: 1.45;
+  min-height: 28px;
+  max-height: 140px;
+  padding: 4px 0;
+  resize: none;
+  overflow-y: auto;
 }
 
 .btn-run {
@@ -921,7 +921,7 @@ body::before {
         <span id="consoleClientDetails" class="console-header-details">NO CLIENT SELECTED</span>
       </div>
       <div class="console-output-container" id="consoleOutput">
-        <div class="output-line info"><span class="time">[INIT]</span>欢迎进入 WS-Shell 终端管理台。请在左侧（或客户端面板）选择在线 Agent 开始执行指令。</div>
+        <div class="output-line info">欢迎进入 WS-Shell 终端管理台。请在左侧（或客户端面板）选择在线 Agent 开始执行指令。</div>
       </div>
       
       <!-- Scroll To Top / Bottom Buttons -->
@@ -955,7 +955,7 @@ body::before {
       <div class="console-input-bar">
         <span class="prompt-prefix" id="promptPrefix">guest@ws-shell:~$</span>
         <div class="console-input-wrapper">
-          <input type="text" id="cmdInput" placeholder="输入命令并按回车..." onkeydown="handleInputKey(event)" disabled>
+          <textarea id="cmdInput" rows="1" placeholder="输入命令，Shift+Enter 换行..." onkeydown="handleInputKey(event)" oninput="autoResizeCmdInput()" disabled></textarea>
         </div>
         <button class="btn-run" id="btnRun" onclick="sendCmd()" disabled>RUN</button>
       </div>
@@ -980,13 +980,20 @@ let selectedClient = null;
 let clientMap = new Map();
 
 // Isolate terminal buffers and active processes per client ID
-// client_id -> Array of { text, cls, timestamp }
+// client_id -> Array of { entryId, kind, text, cls, taskId }
 let clientOutputs = new Map();
 // client_id -> Map of task_id -> cmd
 let clientTasks = new Map();
 
 // Cache exited task IDs to prevent race condition when short tasks (like pwd) complete before execution POST response resolves
 let exitedTasks = new Set();
+
+// WebSocket history replay can overlap with live broadcast; event IDs keep output idempotent.
+const seenEventIds = new Set();
+const seenEventOrder = [];
+const MAX_SEEN_EVENTS = 2000;
+const MAX_CLIENT_OUTPUTS = 300;
+let nextLogEntryId = 1;
 
 let cmdHistory = [];
 let historyIndex = -1;
@@ -1004,41 +1011,113 @@ const activeTasksBar = document.getElementById('activeTasksBar');
 const taskList = document.getElementById('taskList');
 const clientCount = document.getElementById('clientCount');
 
-function logLine(clientId, text, cls = 'info', timestamp = null) {
-  const timeStr = timestamp || new Date().toLocaleTimeString();
-  const logObj = { text, cls, time: timeStr };
+function rememberEventId(eventId) {
+  if (!eventId) return false;
+  if (seenEventIds.has(eventId)) return true;
 
+  seenEventIds.add(eventId);
+  seenEventOrder.push(eventId);
+  while (seenEventOrder.length > MAX_SEEN_EVENTS) {
+    seenEventIds.delete(seenEventOrder.shift());
+  }
+  return false;
+}
+
+function makeLogObject(text, cls = 'info', kind = 'line', extra = {}) {
+  return {
+    entryId: nextLogEntryId++,
+    kind,
+    text,
+    cls,
+    ...extra,
+  };
+}
+
+function pushLogObject(clientId, logObj) {
   if (clientId) {
     if (!clientOutputs.has(clientId)) {
       clientOutputs.set(clientId, []);
     }
     const buf = clientOutputs.get(clientId);
     buf.push(logObj);
-    // limit local history buffer to 300 lines per client
-    if (buf.length > 300) buf.shift();
+    if (buf.length > MAX_CLIENT_OUTPUTS) buf.shift();
   }
 
-  // If this belongs to the currently active client (or is a general system log)
   if (!clientId || (selectedClient && selectedClient.id === clientId)) {
     renderLogObject(logObj);
   }
 }
 
+function logLine(clientId, text, cls = 'info') {
+  pushLogObject(clientId, makeLogObject(text, cls));
+}
+
+function logCommandOutput(clientId, taskId, text, stream = 'stdout') {
+  const cls = stream === 'stderr' ? 'stderr' : 'stdout';
+
+  if (clientId) {
+    if (!clientOutputs.has(clientId)) {
+      clientOutputs.set(clientId, []);
+    }
+    const buf = clientOutputs.get(clientId);
+    const last = buf[buf.length - 1];
+
+    if (last && last.kind === 'output' && last.taskId === taskId && last.cls === cls) {
+      if (!selectedClient || selectedClient.id !== clientId) {
+        last.text += text;
+        return;
+      }
+      if (appendRenderedOutput(last, text, clientId)) {
+        last.text += text;
+        return;
+      }
+    }
+
+    const logObj = makeLogObject(text, cls, 'output', { taskId });
+    buf.push(logObj);
+    if (buf.length > MAX_CLIENT_OUTPUTS) buf.shift();
+
+    if (selectedClient && selectedClient.id === clientId) {
+      renderLogObject(logObj);
+    }
+    return;
+  }
+
+  renderLogObject(makeLogObject(text, cls, 'output', { taskId }));
+}
+
 function renderLogObject(logObj) {
-  const d = document.createElement('div');
+  const d = document.createElement(logObj.kind === 'output' ? 'pre' : 'div');
   d.className = `output-line ${logObj.cls}`;
-  
-  const timeSpan = document.createElement('span');
-  timeSpan.className = 'time';
-  timeSpan.textContent = logObj.time;
-  
+  d.dataset.entryId = String(logObj.entryId);
+
   const contentSpan = document.createElement('span');
+  contentSpan.className = 'content';
   contentSpan.textContent = logObj.text;
-  
-  d.appendChild(timeSpan);
+
   d.appendChild(contentSpan);
   output.appendChild(d);
   output.scrollTop = output.scrollHeight;
+}
+
+function appendRenderedOutput(logObj, text, clientId) {
+  if (clientId && (!selectedClient || selectedClient.id !== clientId)) return false;
+
+  const lastEl = output.lastElementChild;
+  if (!lastEl || lastEl.dataset.entryId !== String(logObj.entryId)) return false;
+
+  const content = lastEl.querySelector('.content');
+  if (content) {
+    content.appendChild(document.createTextNode(text));
+    output.scrollTop = output.scrollHeight;
+    return true;
+  }
+  return false;
+}
+
+function setConsoleMessage(text, cls = 'info') {
+  output.innerHTML = '';
+  renderLogObject(makeLogObject(text, cls));
 }
 
 // Check stored token
@@ -1113,10 +1192,12 @@ function connectWS() {
   ws.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
+      if (rememberEventId(msg.event_id)) return;
+
       const targetClientId = msg.client_id || null;
 
       if (msg.type === 'Output') {
-        logLine(targetClientId, msg.data, msg.stream === 'stderr' ? 'stderr' : 'stdout');
+        logCommandOutput(targetClientId, msg.id, msg.data, msg.stream || 'stdout');
       } else if (msg.type === 'Exit') {
         logLine(targetClientId, `Process exited with code ${msg.code}`, 'exit');
         removeActiveTask(targetClientId, msg.id);
@@ -1228,7 +1309,7 @@ function selectClient(id) {
     cmdInput.disabled = true;
     btnRun.disabled = true;
     detailContent.innerHTML = '<div class="no-clients" style="margin: auto;">Select a client to view details</div>';
-    output.innerHTML = '<div class="output-line info"><span class="time">[INIT]</span>Select an online client/agent node to start execution.</div>';
+    setConsoleMessage('Select an online client/agent node to start execution.');
     renderActiveTasks();
     return;
   }
@@ -1250,7 +1331,7 @@ function selectClient(id) {
   output.innerHTML = '';
   const history = clientOutputs.get(id) || [];
   if (history.length === 0) {
-    output.innerHTML = `<div class="output-line info"><span class="time">[INIT]</span>Terminal session opened for node [${selectedClient.hostname}]. Ready for commands.</div>`;
+    setConsoleMessage(`Terminal session opened for node [${selectedClient.hostname}]. Ready for commands.`);
   } else {
     history.forEach(logObj => renderLogObject(logObj));
   }
@@ -1307,17 +1388,64 @@ function updateDetailPanel() {
   `;
 }
 
+function autoResizeCmdInput() {
+  cmdInput.style.height = 'auto';
+  cmdInput.style.height = `${Math.min(cmdInput.scrollHeight, 140)}px`;
+}
+
+function currentLineEndsWithContinuation() {
+  const caret = cmdInput.selectionStart ?? cmdInput.value.length;
+  const beforeCaret = cmdInput.value.slice(0, caret);
+  const currentLine = beforeCaret.slice(beforeCaret.lastIndexOf('\n') + 1);
+  return /\\\s*$/.test(currentLine);
+}
+
+function insertContinuationNewline() {
+  const start = cmdInput.selectionStart ?? cmdInput.value.length;
+  const end = cmdInput.selectionEnd ?? start;
+  const before = cmdInput.value.slice(0, start).replace(/\\\s*$/, '\\');
+  const after = cmdInput.value.slice(end);
+  const nextCaret = before.length + 1;
+
+  cmdInput.value = `${before}\n${after}`;
+  cmdInput.setSelectionRange(nextCaret, nextCaret);
+  autoResizeCmdInput();
+}
+
+function useHistoryPrevious() {
+  return cmdInput.value === '' || cmdInput.selectionStart === 0;
+}
+
+function useHistoryNext() {
+  return cmdInput.value === '' || cmdInput.selectionStart === cmdInput.value.length;
+}
+
 function handleInputKey(e) {
+  if (e.isComposing) return;
+
   if (e.key === 'Enter') {
+    if (e.shiftKey) {
+      setTimeout(autoResizeCmdInput, 0);
+      return;
+    }
+    if (currentLineEndsWithContinuation()) {
+      e.preventDefault();
+      insertContinuationNewline();
+      return;
+    }
+    e.preventDefault();
     sendCmd();
   } else if (e.key === 'ArrowUp') {
+    if (!useHistoryPrevious()) return;
     e.preventDefault();
     if (cmdHistory.length > 0) {
       if (historyIndex === -1) historyIndex = cmdHistory.length;
       historyIndex = Math.max(0, historyIndex - 1);
       cmdInput.value = cmdHistory[historyIndex];
+      autoResizeCmdInput();
     }
   } else if (e.key === 'ArrowDown') {
+    if (!useHistoryNext()) return;
     e.preventDefault();
     if (cmdHistory.length > 0 && historyIndex !== -1) {
       historyIndex = Math.min(cmdHistory.length, historyIndex + 1);
@@ -1327,25 +1455,27 @@ function handleInputKey(e) {
       } else {
         cmdInput.value = cmdHistory[historyIndex];
       }
+      autoResizeCmdInput();
     }
   }
 }
 
 async function sendCmd() {
-  const cmd = cmdInput.value.trim();
-  if (!cmd || !selectedClient) return;
+  const cmd = cmdInput.value.replace(/\r\n/g, '\n').trimEnd();
+  if (!cmd.trim() || !selectedClient) return;
   
   cmdHistory.push(cmd);
   historyIndex = -1;
   cmdInput.value = '';
+  autoResizeCmdInput();
 
   // Intercept clear or /clear to perform client-side console wipe
-  if (cmd === 'clear' || cmd === '/clear') {
+  if (cmd.trim() === 'clear' || cmd.trim() === '/clear') {
     output.innerHTML = '';
     if (clientOutputs.has(selectedClient.id)) {
       clientOutputs.set(selectedClient.id, []);
     }
-    output.innerHTML = `<div class="output-line info"><span class="time">[INIT]</span>Terminal session cleared for node [${selectedClient.hostname}].</div>`;
+    logLine(selectedClient.id, `Terminal session cleared for node [${selectedClient.hostname}].`, 'info');
     return;
   }
   
@@ -1374,6 +1504,7 @@ function runPreset(cmd) {
     return;
   }
   cmdInput.value = cmd;
+  autoResizeCmdInput();
   sendCmd();
 }
 

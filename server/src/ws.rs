@@ -103,6 +103,7 @@ async fn upload_log(
 
     let webui_msg = serde_json::json!({
         "type": "Log",
+        "event_id": uuid::Uuid::new_v4().to_string(),
         "hostname": hostname,
         "level": level,
         "message": log.message,
@@ -212,10 +213,9 @@ async fn get_task(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<Json<ws_shell_common::TaskResult>, ApiErrorResponse> {
-    state
-        .task_get(&task_id)
-        .map(Json)
-        .ok_or_else(|| ApiErrorResponse::not_found(format!("task {} not found or expired", task_id)))
+    state.task_get(&task_id).map(Json).ok_or_else(|| {
+        ApiErrorResponse::not_found(format!("task {} not found or expired", task_id))
+    })
 }
 
 // ── WebSocket: WebUI ↔ Server ────────────────────────────────────
@@ -299,7 +299,12 @@ async fn ws_client_handler(
     ws.on_upgrade(move |socket| handle_client_ws(socket, state, token, addr))
 }
 
-async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String, addr: SocketAddr) {
+async fn handle_client_ws(
+    socket: WebSocket,
+    state: Arc<AppState>,
+    token: String,
+    addr: SocketAddr,
+) {
     // Accept both JWT tokens and raw secret for client connections
     if auth::verify_token(&state.jwt_secret, &token).is_none() && token != state.jwt_secret {
         warn!("Client connection rejected: invalid token");
@@ -347,19 +352,28 @@ async fn handle_client_ws(socket: WebSocket, state: Arc<AppState>, token: String
                 match serde_json::from_str::<ClientMsg>(text) {
                     Ok(client_msg) => {
                         // Enrich the JSON broadcast to WebUI with the associated client_id
+                        // and a stable event ID so WebUI history replay can be de-duplicated.
+                        let event_id = uuid::Uuid::new_v4().to_string();
                         let enriched_text = if let Some(cid) = &client_id {
                             if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(text) {
                                 val["client_id"] = serde_json::Value::String(cid.clone());
+                                val["event_id"] = serde_json::Value::String(event_id);
                                 serde_json::to_string(&val).unwrap_or_else(|_| text.to_string())
                             } else {
                                 text.to_string()
                             }
+                        } else if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(text)
+                        {
+                            val["event_id"] = serde_json::Value::String(event_id);
+                            serde_json::to_string(&val).unwrap_or_else(|_| text.to_string())
                         } else {
                             text.to_string()
                         };
 
                         match &client_msg {
-                            ClientMsg::Output { id, stream, data, .. } => {
+                            ClientMsg::Output {
+                                id, stream, data, ..
+                            } => {
                                 info!("[{}] output: {} bytes", id, text.len());
                                 let stream_str = match stream {
                                     ws_shell_common::StreamType::Stderr => "stderr",
